@@ -1,5 +1,9 @@
 # CLI MCP Server
 
+## Fork note and shell selection
+
+This repository is forked from https://github.com/MladenSU/cli-mcp-server. It adds support for choosing a specific shell executable via the `SHELL_EXEC` environment variable. When set to an absolute, executable path, shell-based commands use that shell instead of the default.
+
 ---
 
 A secure Model Context Protocol (MCP) server implementation for executing controlled command-line operations with
@@ -64,6 +68,7 @@ Configure the server using environment variables:
 | `MAX_COMMAND_LENGTH`| Maximum command string length                        | `1024`            |
 | `COMMAND_TIMEOUT`   | Command execution timeout (seconds)                  | `30`              |
 | `ALLOW_SHELL_OPERATORS` | Allow shell operators (&&, \|\|, \|, >, etc.)    | `false`           |
+| `SHELL_EXEC`        | Absolute path to the shell executable for shell commands | None          |
 
 Note: Setting `ALLOWED_COMMANDS` or `ALLOWED_FLAGS` to 'all' will allow any command or flag respectively.
 
