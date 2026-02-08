@@ -59,7 +59,8 @@ class TestSupergatewayE2E(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        url = os.getenv("SUPERGATEWAY_URL", "http://127.0.0.1:8084/mcp")
+        port = os.getenv("PORT", "8084")
+        url = os.getenv("SUPERGATEWAY_URL", f"http://127.0.0.1:{port}/mcp")
         parsed = urllib.parse.urlparse(url)
         if not parsed.hostname or not parsed.port:
             raise RuntimeError(f"Invalid SUPERGATEWAY_URL: {url}")

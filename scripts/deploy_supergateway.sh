@@ -111,6 +111,10 @@ start_bg() {
     exit 0
   fi
 
+  if [[ -f "$LOGFILE" ]]; then
+    : >"$LOGFILE"
+  fi
+
   if [[ -z "${NPX_BIN:-}" ]]; then
     NPX_BIN="$(command -v npx || true)"
   fi

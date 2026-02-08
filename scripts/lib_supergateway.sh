@@ -43,7 +43,7 @@ require_cli_bin() {
   local cli_bin="$1"
   if [[ ! -x "$cli_bin" ]]; then
     echo "ERROR: CLI binary not found or not executable: $cli_bin" >&2
-    echo "Run scripts/build_run.sh or scripts/build_test.sh first." >&2
+    echo "Run scripts/build_run.sh or scripts/test_unit_python.sh first." >&2
     exit 1
   fi
 }
