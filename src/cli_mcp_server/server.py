@@ -47,6 +47,7 @@ class SecurityConfig:
     allowed_flags: set[str]
     max_command_length: int
     command_timeout: int
+    shell_exec: str
     allow_all_commands: bool = False
     allow_all_flags: bool = False
     allow_shell_operators: bool = False
@@ -391,6 +392,7 @@ def load_security_config() -> SecurityConfig:
             - allowed_flags: Set of permitted command flags/options
             - max_command_length: Maximum length of command string
             - command_timeout: Maximum execution time in seconds
+            - shell_exec: Shell executable path or "default" when unset
             - allow_all_commands: Whether all commands are allowed
             - allow_all_flags: Whether all flags are allowed
             - allow_shell_operators: Whether shell operators (&&, ||, |, etc.) are allowed
@@ -400,12 +402,14 @@ def load_security_config() -> SecurityConfig:
         ALLOWED_FLAGS: Comma-separated list of allowed flags or 'all' (default: "-l,-a,--help")
         MAX_COMMAND_LENGTH: Maximum command string length (default: 1024)
         COMMAND_TIMEOUT: Command timeout in seconds (default: 30)
+        SHELL_EXEC: Absolute path to the shell executable (default: "default")
         ALLOW_SHELL_OPERATORS: Whether to allow shell operators like &&, ||, |, >, etc. (default: false)
                               Set to "true" or "1" to enable, any other value to disable.
     """
     allowed_commands = os.getenv("ALLOWED_COMMANDS", "ls,cat,pwd")
     allowed_flags = os.getenv("ALLOWED_FLAGS", "-l,-a,--help")
     allow_shell_operators_env = os.getenv("ALLOW_SHELL_OPERATORS", "false")
+    shell_exec = os.getenv("SHELL_EXEC") or "default"
 
     allow_all_commands = allowed_commands.lower() == "all"
     allow_all_flags = allowed_flags.lower() == "all"
@@ -418,6 +422,7 @@ def load_security_config() -> SecurityConfig:
         allowed_flags=set() if allow_all_flags else set(allowed_flags.split(",")),
         max_command_length=int(os.getenv("MAX_COMMAND_LENGTH", "1024")),
         command_timeout=int(os.getenv("COMMAND_TIMEOUT", "30")),
+        shell_exec=shell_exec,
         allow_all_commands=allow_all_commands,
         allow_all_flags=allow_all_flags,
         allow_shell_operators=allow_shell_operators,
@@ -562,6 +567,7 @@ async def handle_call_tool(
             f"{flags_desc}\n"
             f"\nSecurity Limits:\n"
             f"---------------\n"
+            f"Executable: {executor.security_config.shell_exec}\n"
             f"Max Command Length: {executor.security_config.max_command_length} characters\n"
             f"Command Timeout: {executor.security_config.command_timeout} seconds\n"
         )
@@ -577,7 +583,7 @@ async def main():
             write_stream,
             InitializationOptions(
                 server_name="cli-mcp-server",
-                server_version="0.2.1",
+                server_version="0.2.2",
                 capabilities=server.get_capabilities(
                     notification_options=NotificationOptions(),
                     experimental_capabilities={},
