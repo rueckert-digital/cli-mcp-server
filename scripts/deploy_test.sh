@@ -5,37 +5,15 @@ set -Eeuo pipefail
 
 export PYTHONUNBUFFERED=1
 
-if [[ -f ".env" ]]; then
-  echo "Sourcing .env ..."
-  set -a
-  source .env
-  set +a
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib_supergateway.sh"
+
+load_env
 
 SUPERGATEWAY_URL="${SUPERGATEWAY_URL:-http://127.0.0.1:8084/mcp}"
 
-python - <<'PY'
-import socket
-import urllib.parse
-import os
+CHECK_URL="$SUPERGATEWAY_URL" check_supergateway_url "$SUPERGATEWAY_URL"
 
-url = os.environ["SUPERGATEWAY_URL"]
-parsed = urllib.parse.urlparse(url)
-if not parsed.hostname or not parsed.port:
-    raise SystemExit(f"Invalid SUPERGATEWAY_URL: {url}")
-
-try:
-    with socket.create_connection((parsed.hostname, parsed.port), timeout=2):
-        print(f"Supergateway reachable at {parsed.hostname}:{parsed.port}")
-except OSError as exc:
-    raise SystemExit(f"Supergateway not reachable at {parsed.hostname}:{parsed.port}: {exc}")
-PY
-
-echo "Preparing virtual environment ..."
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install --quiet -U pip
-python -m pip install --quiet .
-
-echo "Run e2e tests ..."
+echo "Run e2e tests against Supergateway ..."
 python -m unittest tests.test_e2e_supergateway -v

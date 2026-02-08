@@ -16,22 +16,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: |
-          python -m pip install --upgrade pip
-          python -m pip install .
+      - name: Build CLI
+        run: ./scripts/build_run.sh
       - name: Start Supergateway
         run: |
           export ALLOWED_DIR="${GITHUB_WORKSPACE}"
           export ALLOWED_COMMANDS="all"
           export ALLOWED_FLAGS="all"
           export ALLOW_SHELL_OPERATORS="true"
-          npx -y supergateway \
-            --stdio "cli-mcp-server" \
-            --outputTransport streamableHttp \
-            --stateful \
-            --port 8084 \
-            --streamableHttpPath /mcp >supergateway.log 2>&1 &
-          echo $! > supergateway.pid
+          export SKIP_BUILD="true"
+          export VENV_DIR="${GITHUB_WORKSPACE}/.venv"
+          ./scripts/deploy_supergateway.sh start
       - name: Wait for Supergateway
         run: |
           python - <<'PY'
@@ -49,4 +44,4 @@ jobs:
           else:
               raise SystemExit("Supergateway did not start on 127.0.0.1:8084")
           PY
-      - run: python -m unittest discover -v
+      - run: ./.venv/bin/python -m unittest discover -v

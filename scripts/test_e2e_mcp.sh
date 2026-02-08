@@ -5,49 +5,21 @@ set -Eeuo pipefail
 
 export PYTHONUNBUFFERED=1
 
-if [[ -f ".env" ]]; then
-  echo "Sourcing .env ..."
-  set -a
-  source .env
-  set +a
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib_supergateway.sh"
+
+load_env
 
 VENV_DIR="${VENV_DIR:-.venv}"
 CLI_MCP_BIN="${CLI_MCP_BIN:-${VENV_DIR}/bin/cli-mcp-server}"
 
-if [[ ! -x "$CLI_MCP_BIN" ]]; then
-  echo "ERROR: CLI binary not found or not executable: $CLI_MCP_BIN" >&2
-  echo "Run scripts/build_run.sh or scripts/build_test.sh first." >&2
-  exit 1
-fi
+require_cli_bin "$CLI_MCP_BIN"
 
 SUPERGATEWAY_URL="${SUPERGATEWAY_URL:-http://127.0.0.1:8084/mcp}"
 SUPERGATEWAY_URL_BASH="${SUPERGATEWAY_URL_BASH:-}"
 
-if [[ -z "$SUPERGATEWAY_URL_BASH" ]]; then
-  echo "ERROR: SUPERGATEWAY_URL_BASH is required for the /bin/bash test target." >&2
-  exit 1
-fi
-
-check_url() {
-  local url="$1"
-  python - <<'PY'
-import socket
-import urllib.parse
-import os
-
-url = os.environ["CHECK_URL"]
-parsed = urllib.parse.urlparse(url)
-if not parsed.hostname or not parsed.port:
-    raise SystemExit(f"Invalid SUPERGATEWAY_URL: {url}")
-
-try:
-    with socket.create_connection((parsed.hostname, parsed.port), timeout=2):
-        print(f"Supergateway reachable at {parsed.hostname}:{parsed.port}")
-except OSError as exc:
-    raise SystemExit(f"Supergateway not reachable at {parsed.hostname}:{parsed.port}: {exc}")
-PY
-}
+require_var SUPERGATEWAY_URL_BASH
 
 run_inspector() {
   local url="$1"
@@ -82,8 +54,12 @@ run_suite() {
   echo "$ls_output" | grep -q "Command completed with return code: 0"
 }
 
-CHECK_URL="$SUPERGATEWAY_URL" check_url "$SUPERGATEWAY_URL"
-CHECK_URL="$SUPERGATEWAY_URL_BASH" check_url "$SUPERGATEWAY_URL_BASH"
+CHECK_URL="$SUPERGATEWAY_URL" check_supergateway_url "$SUPERGATEWAY_URL"
+CHECK_URL="$SUPERGATEWAY_URL_BASH" check_supergateway_url "$SUPERGATEWAY_URL_BASH"
+
+echo "Expecting two Supergateway instances:"
+echo " - default shell (SHELL_EXEC unset): ${SUPERGATEWAY_URL}"
+echo " - bash shell (SHELL_EXEC=/bin/bash): ${SUPERGATEWAY_URL_BASH}"
 
 run_suite "$SUPERGATEWAY_URL" "SHELL_EXEC unset"
 run_suite "$SUPERGATEWAY_URL_BASH" "SHELL_EXEC=/bin/bash"
