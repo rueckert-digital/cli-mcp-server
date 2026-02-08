@@ -14,6 +14,22 @@ PIDFILE="${PIDFILE:-/var/run/supergateway-cli-mcp.pid}"
 LOGFILE="${LOGFILE:-/var/log/supergateway-cli-mcp.log}"
 CLI_MCP_BIN="${CLI_MCP_BIN:-${VENV_DIR}/bin/cli-mcp-server}"
 
+install_requirements() {
+  if command -v lsof >/dev/null 2>&1 || command -v ss >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if command -v apt-get >/dev/null 2>&1; then
+    echo "Installing requirements (lsof/iproute2) via apt-get..."
+    sudo apt-get update -y
+    sudo apt-get install -y lsof iproute2
+  else
+    echo "WARNING: apt-get not available; install lsof or ss manually." >&2
+  fi
+}
+
+install_requirements
+
 # Prefer lsof (macOS/Linux), fallback to ss (Linux)
 pids_on_port() {
   if command -v lsof >/dev/null 2>&1; then
