@@ -1,41 +1,49 @@
-import json
 import os
 import socket
-import subprocess
-import sys
-import tempfile
-import time
 import unittest
 import urllib.parse
 import urllib.request
+import urllib.error
+import json
+
+
+def _read_response_body(response: urllib.response.addinfourl) -> str:
+    content_type = response.headers.get("content-type", "")
+    if content_type.startswith("text/event-stream"):
+        lines = []
+        while True:
+            line = response.readline().decode("utf-8")
+            if not line:
+                break
+            lines.append(line)
+            if line.startswith("data: "):
+                break
+        return "".join(lines)
+    return response.read().decode("utf-8")
 
 
 def _post_json(url: str, payload: dict, headers: dict, timeout: int = 10) -> tuple[int, dict, str]:
     data = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        body = response.read().decode("utf-8")
-        normalized_headers = {key.lower(): value for key, value in response.headers.items()}
-        return response.status, normalized_headers, body
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = _read_response_body(response)
+            normalized_headers = {key.lower(): value for key, value in response.headers.items()}
+            return response.status, normalized_headers, body
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8") if exc.fp else ""
+        normalized_headers = {key.lower(): value for key, value in exc.headers.items()}
+        return exc.code, normalized_headers, body
 
 
 def _parse_response_body(body: str) -> dict:
-    stripped = body.strip()
-    if stripped:
-        try:
-            return json.loads(stripped)
-        except json.JSONDecodeError:
-            pass
-    # Streamable HTTP responses can be newline-delimited JSON chunks.
+    stripped = body.lstrip()
+    if stripped.startswith("{"):
+        return json.loads(stripped)
     for line in body.splitlines():
-        chunk = line.strip()
-        if not chunk:
-            continue
-        try:
-            return json.loads(chunk)
-        except json.JSONDecodeError:
-            continue
-    raise AssertionError(f"Unable to parse streamable response body: {body!r}")
+        if line.startswith("data: "):
+            return json.loads(line[len("data: "):])
+    raise AssertionError(f"Unable to parse response body: {body!r}")
 
 
 def _is_port_open(host: str, port: int, timeout: float = 0.5) -> bool:
@@ -46,68 +54,28 @@ def _is_port_open(host: str, port: int, timeout: float = 0.5) -> bool:
         return False
 
 
-def _wait_for_port(host: str, port: int, timeout: float = 20.0) -> None:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if _is_port_open(host, port):
-            return
-        time.sleep(0.5)
-    raise TimeoutError(f"Timed out waiting for streamable HTTP server on {host}:{port}")
-
-
 class TestSupergatewayE2E(unittest.TestCase):
-    _http_process: subprocess.Popen | None = None
-    _http_tempdir: tempfile.TemporaryDirectory | None = None
     _base_url: str = ""
 
     @classmethod
     def setUpClass(cls) -> None:
-        url = os.getenv("MCP_HTTP_URL") or os.getenv(
-            "SUPERGATEWAY_URL", "http://127.0.0.1:8084/mcp"
-        )
+        url = os.getenv("SUPERGATEWAY_URL", "http://127.0.0.1:8084/mcp")
         parsed = urllib.parse.urlparse(url)
         if not parsed.hostname or not parsed.port:
-            raise RuntimeError(f"Invalid MCP_HTTP_URL/SUPERGATEWAY_URL: {url}")
+            raise RuntimeError(f"Invalid SUPERGATEWAY_URL: {url}")
         cls._base_url = url
 
-        if _is_port_open(parsed.hostname, parsed.port):
-            return
-
-        cls._http_tempdir = tempfile.TemporaryDirectory()
-        env = os.environ.copy()
-        env.setdefault("ALLOWED_DIR", cls._http_tempdir.name)
-        env.setdefault("ALLOWED_COMMANDS", "all")
-        env.setdefault("ALLOWED_FLAGS", "all")
-        env.setdefault("ALLOW_SHELL_OPERATORS", "true")
-        env.setdefault("MCP_HTTP_HOST", parsed.hostname)
-        env.setdefault("MCP_HTTP_PORT", str(parsed.port))
-        env.setdefault("MCP_HTTP_PATH", parsed.path or "/mcp")
-
-        cls._http_process = subprocess.Popen(
-            [sys.executable, "-m", "cli_mcp_server.streamable_http"],
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        _wait_for_port(parsed.hostname, parsed.port)
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        if cls._http_process:
-            cls._http_process.terminate()
-            try:
-                cls._http_process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                cls._http_process.kill()
-                cls._http_process.wait(timeout=5)
-        if cls._http_tempdir:
-            cls._http_tempdir.cleanup()
+        if not _is_port_open(parsed.hostname, parsed.port):
+            raise RuntimeError(
+                "Supergateway is not reachable. Start it before running e2e tests. "
+                f"Expected listening at {parsed.hostname}:{parsed.port}."
+            )
 
     def test_supergateway_endpoints(self) -> None:
         url = self._base_url
+        print("[e2e] Supergateway client checks starting")
         base_headers = {
-            "accept": "application/json",
+            "accept": "application/json, text/event-stream",
             "content-type": "application/json",
         }
 
@@ -126,6 +94,7 @@ class TestSupergatewayE2E(unittest.TestCase):
         self.assertEqual(status, 200, f"Unexpected init status: {status}, body={init_body}")
         init_response = _parse_response_body(init_body)
         self.assertIn("result", init_response, f"Init response missing result: {init_response}")
+        print("[e2e][initialize] ok")
 
         session_id = init_headers.get("mcp-session-id")
         self.assertTrue(session_id, "Missing mcp-session-id header from initialize")
@@ -146,6 +115,7 @@ class TestSupergatewayE2E(unittest.TestCase):
             202,
             f"Unexpected initialized notification status: {notify_status}, body={notify_body}",
         )
+        print("[e2e][notifications/initialized] ok")
 
         tools_list = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
         tools_status, _, tools_body = _post_json(url, tools_list, headers)
@@ -158,6 +128,7 @@ class TestSupergatewayE2E(unittest.TestCase):
         tool_names = {tool["name"] for tool in tools_response["result"]["tools"]}
         self.assertIn("run_command", tool_names)
         self.assertIn("show_security_rules", tool_names)
+        print("[e2e][tools/list] ok")
 
         echo_shell = {
             "jsonrpc": "2.0",
@@ -174,6 +145,7 @@ class TestSupergatewayE2E(unittest.TestCase):
         echo_response = _parse_response_body(echo_body)
         echo_text = "\n".join(item["text"] for item in echo_response["result"]["content"])
         self.assertIn("Command completed with return code: 0", echo_text)
+        print("[e2e][tools/call run_command echo] ok")
 
         list_dir = {
             "jsonrpc": "2.0",
@@ -190,6 +162,7 @@ class TestSupergatewayE2E(unittest.TestCase):
         ls_response = _parse_response_body(ls_body)
         ls_text = "\n".join(item["text"] for item in ls_response["result"]["content"])
         self.assertIn("Command completed with return code: 0", ls_text)
+        print("[e2e][tools/call run_command ls] ok")
 
         security_call = {
             "jsonrpc": "2.0",
@@ -206,6 +179,9 @@ class TestSupergatewayE2E(unittest.TestCase):
         security_response = _parse_response_body(security_body)
         security_text = "\n".join(item["text"] for item in security_response["result"]["content"])
         self.assertIn("Security Configuration", security_text)
+        print("[e2e][tools/call show_security_rules] ok")
+
+        print("[e2e] Supergateway client checks done")
 
 
 if __name__ == "__main__":
