@@ -1,7 +1,12 @@
 import json
 import os
+import socket
+import subprocess
+import sys
+import tempfile
+import time
 import unittest
-import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -10,24 +15,99 @@ def _post_json(url: str, payload: dict, headers: dict, timeout: int = 10) -> tup
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
     with urllib.request.urlopen(request, timeout=timeout) as response:
         body = response.read().decode("utf-8")
-        return response.status, dict(response.headers), body
+        normalized_headers = {key.lower(): value for key, value in response.headers.items()}
+        return response.status, normalized_headers, body
 
 
 def _parse_response_body(body: str) -> dict:
-    stripped = body.lstrip()
-    if stripped.startswith("{"):
-        return json.loads(stripped)
+    stripped = body.strip()
+    if stripped:
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            pass
+    # Streamable HTTP responses can be newline-delimited JSON chunks.
     for line in body.splitlines():
-        if line.startswith("data: "):
-            return json.loads(line[len("data: "):])
-    raise AssertionError(f"Unable to parse response body: {body!r}")
+        chunk = line.strip()
+        if not chunk:
+            continue
+        try:
+            return json.loads(chunk)
+        except json.JSONDecodeError:
+            continue
+    raise AssertionError(f"Unable to parse streamable response body: {body!r}")
+
+
+def _is_port_open(host: str, port: int, timeout: float = 0.5) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _wait_for_port(host: str, port: int, timeout: float = 20.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _is_port_open(host, port):
+            return
+        time.sleep(0.5)
+    raise TimeoutError(f"Timed out waiting for streamable HTTP server on {host}:{port}")
 
 
 class TestSupergatewayE2E(unittest.TestCase):
+    _http_process: subprocess.Popen | None = None
+    _http_tempdir: tempfile.TemporaryDirectory | None = None
+    _base_url: str = ""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        url = os.getenv("MCP_HTTP_URL") or os.getenv(
+            "SUPERGATEWAY_URL", "http://127.0.0.1:8084/mcp"
+        )
+        parsed = urllib.parse.urlparse(url)
+        if not parsed.hostname or not parsed.port:
+            raise RuntimeError(f"Invalid MCP_HTTP_URL/SUPERGATEWAY_URL: {url}")
+        cls._base_url = url
+
+        if _is_port_open(parsed.hostname, parsed.port):
+            return
+
+        cls._http_tempdir = tempfile.TemporaryDirectory()
+        env = os.environ.copy()
+        env.setdefault("ALLOWED_DIR", cls._http_tempdir.name)
+        env.setdefault("ALLOWED_COMMANDS", "all")
+        env.setdefault("ALLOWED_FLAGS", "all")
+        env.setdefault("ALLOW_SHELL_OPERATORS", "true")
+        env.setdefault("MCP_HTTP_HOST", parsed.hostname)
+        env.setdefault("MCP_HTTP_PORT", str(parsed.port))
+        env.setdefault("MCP_HTTP_PATH", parsed.path or "/mcp")
+
+        cls._http_process = subprocess.Popen(
+            [sys.executable, "-m", "cli_mcp_server.streamable_http"],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        _wait_for_port(parsed.hostname, parsed.port)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._http_process:
+            cls._http_process.terminate()
+            try:
+                cls._http_process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                cls._http_process.kill()
+                cls._http_process.wait(timeout=5)
+        if cls._http_tempdir:
+            cls._http_tempdir.cleanup()
+
     def test_supergateway_endpoints(self) -> None:
-        url = os.getenv("SUPERGATEWAY_URL", "http://127.0.0.1:8084/mcp")
+        url = self._base_url
         base_headers = {
-            "accept": "application/json, text/event-stream",
+            "accept": "application/json",
             "content-type": "application/json",
         }
 

@@ -15,6 +15,7 @@ build-backend = "hatchling.build"
 
 [project.scripts]
 cli-mcp-server = "cli_mcp_server:main"
+cli-mcp-server-http = "cli_mcp_server.streamable_http:main"
 
 [project.urls]
 Homepage = "https://github.com/MladenSU/cli-mcp-server"

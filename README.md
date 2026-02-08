@@ -227,6 +227,20 @@ To prepare the package for distribution:
    uv publish --token {{YOUR_PYPI_API_TOKEN}}
    ```
 
+### Streamable HTTP server (JSON)
+
+If you want a direct streamable HTTP endpoint that **does not use SSE**, run the built-in
+HTTP server. It emits `application/json` responses and streams as newline-delimited JSON
+frames (NDJSON) to match the streamable HTTP protocol expectations.
+
+```bash
+MCP_HTTP_HOST=127.0.0.1 MCP_HTTP_PORT=8084 MCP_HTTP_PATH=/mcp cli-mcp-server-http
+```
+
+Clients should set `Accept: application/json` and send JSON-RPC requests to the configured
+path (default `/mcp`). You can also override the bind settings with `MCP_HTTP_HOST`,
+`MCP_HTTP_PORT`, and `MCP_HTTP_PATH`.
+
 ### Deploying with Supergateway
 
 For local deployments using [Supergateway](https://github.com/supercorp-ai/supergateway), you can use:
