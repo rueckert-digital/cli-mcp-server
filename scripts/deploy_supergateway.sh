@@ -30,6 +30,23 @@ install_requirements() {
 
 install_requirements
 
+resolve_allowed_dir() {
+  local candidate
+
+  if [[ -n "${ALLOWED_DIR:-}" ]] && [[ -d "$ALLOWED_DIR" ]]; then
+    return 0
+  fi
+
+  for candidate in "/DATA/repos/codex-cli-control-center" "/workspace/cli-mcp-server" "/tmp"; do
+    if [[ -d "$candidate" ]]; then
+      export ALLOWED_DIR="$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 # Prefer lsof (macOS/Linux), fallback to ss (Linux)
 pids_on_port() {
   if command -v lsof >/dev/null 2>&1; then
@@ -121,11 +138,21 @@ start_bg() {
     exit 1
   fi
 
+  set -a
+  source "$ENV_FILE"
+  set +a
+
+  if ! resolve_allowed_dir; then
+    echo "ERROR: ALLOWED_DIR not set to an existing directory." >&2
+    exit 1
+  fi
+
   # Detach cleanly from terminal, survive logout, write pidfile
   nohup bash -lc "
     set -euo pipefail
     set -a
     source '$ENV_FILE'
+    ALLOWED_DIR='${ALLOWED_DIR}'
     set +a
     exec npx -y supergateway \
       --stdio \"$CLI_MCP_BIN\" \
