@@ -28,6 +28,7 @@ class TestCLIMCPServer(unittest.TestCase):
         os.environ.pop("ALLOWED_FLAGS", None)
         # Ensure shell operators are disabled by default
         os.environ.pop("ALLOW_SHELL_OPERATORS", None)
+        os.environ.pop("SHELL_EXEC", None)
         # Reload server module to pick up env changes
         try:
             import cli_mcp_server.server as server_module
@@ -218,6 +219,43 @@ class TestCLIMCPServer(unittest.TestCase):
         # The OR operation should output 'OR_OK'
         self.assertEqual(texts[0].strip(), "OR_OK", f"Unexpected OR output: {texts[0]!r}")
         self.assertTrue(any("return code: 0" in text for text in texts))
+
+    def test_shell_exec_available_shells(self):
+        shell_candidates = ["bash", "zsh", "sh", "dash", "ksh"]
+        shell_paths = [shutil.which(shell) for shell in shell_candidates]
+        shell_paths = [path for path in shell_paths if path]
+        if not shell_paths:
+            self.skipTest("No shells available on PATH")
+
+        file_name = "shell_exec_test.txt"
+        file_path = os.path.join(self.tempdir.name, file_name)
+        with open(file_path, "w") as f:
+            f.write("test")
+
+        for shell_path in shell_paths:
+            with self.subTest(shell=shell_path):
+                os.environ["ALLOW_SHELL_OPERATORS"] = "true"
+                os.environ["ALLOWED_COMMANDS"] = "all"
+                os.environ["ALLOWED_FLAGS"] = "all"
+                os.environ["SHELL_EXEC"] = shell_path
+                import cli_mcp_server.server as server_module
+
+                server = importlib.reload(server_module)
+                result = asyncio.run(
+                    server.handle_call_tool(
+                        "run_command", {"command": 'echo "Shell: ${SHELL:-}"; ls'}
+                    )
+                )
+                texts = [tc.text for tc in result]
+                print_results_table(f"test_shell_exec_available_shells_{shell_path}", result)
+                self.assertTrue(
+                    any("return code: 0" in text for text in texts),
+                    f"Expected success return code, got: {texts}",
+                )
+                self.assertTrue(
+                    any(file_name in text for text in texts),
+                    f"Expected ls output to include {file_name}, got: {texts}",
+                )
 
 
 if __name__ == "__main__":

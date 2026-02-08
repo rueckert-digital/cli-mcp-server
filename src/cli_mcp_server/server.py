@@ -53,11 +53,17 @@ class SecurityConfig:
 
 
 class CommandExecutor:
-    def __init__(self, allowed_dir: str, security_config: SecurityConfig):
+    def __init__(
+        self,
+        allowed_dir: str,
+        security_config: SecurityConfig,
+        shell_exec: Optional[str] = None,
+    ):
         if not allowed_dir or not os.path.exists(allowed_dir):
             raise ValueError("Valid ALLOWED_DIR is required")
         self.allowed_dir = os.path.abspath(os.path.realpath(allowed_dir))
         self.security_config = security_config
+        self.shell_exec = shell_exec
 
     def _normalize_path(self, path: str) -> str:
         """
@@ -344,6 +350,7 @@ class CommandExecutor:
                 return subprocess.run(
                     command,  # command is the full command string in this case
                     shell=True,
+                    executable=self.shell_exec,
                     text=True,
                     capture_output=True,
                     timeout=self.security_config.command_timeout,
@@ -416,9 +423,25 @@ def load_security_config() -> SecurityConfig:
         allow_shell_operators=allow_shell_operators,
     )
 
+def load_shell_exec() -> Optional[str]:
+    shell_exec = os.getenv("SHELL_EXEC")
+    if not shell_exec:
+        return None
+    if not os.path.isabs(shell_exec):
+        raise ValueError("SHELL_EXEC must be an absolute path")
+    if not os.path.exists(shell_exec):
+        raise ValueError(f"SHELL_EXEC does not exist: {shell_exec}")
+    if not os.path.isfile(shell_exec):
+        raise ValueError(f"SHELL_EXEC must point to a file: {shell_exec}")
+    if not os.access(shell_exec, os.X_OK):
+        raise ValueError(f"SHELL_EXEC is not executable: {shell_exec}")
+    return shell_exec
+
 
 executor = CommandExecutor(
-    allowed_dir=os.getenv("ALLOWED_DIR", ""), security_config=load_security_config()
+    allowed_dir=os.getenv("ALLOWED_DIR", ""),
+    security_config=load_security_config(),
+    shell_exec=load_shell_exec(),
 )
 
 
