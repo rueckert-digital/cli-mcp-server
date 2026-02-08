@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="${REPO_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+BUILD_SCRIPT="${BUILD_SCRIPT:-${SCRIPT_DIR}/build_run.sh}"
+VENV_DIR="${VENV_DIR:-${REPO_DIR}/.venv}"
+
 PORT="${PORT:-8084}"
 PATH_MCP="${PATH_MCP:-/mcp}"
 
 ENV_FILE="${ENV_FILE:-.env}"
 PIDFILE="${PIDFILE:-/var/run/supergateway-cli-mcp.pid}"
 LOGFILE="${LOGFILE:-/var/log/supergateway-cli-mcp.log}"
+CLI_MCP_BIN="${CLI_MCP_BIN:-${VENV_DIR}/bin/cli-mcp-server}"
 
 # Prefer lsof (macOS/Linux), fallback to ss (Linux)
 pids_on_port() {
@@ -71,6 +77,20 @@ start_bg() {
     exit 0
   fi
 
+  if [[ "${SKIP_BUILD:-false}" != "true" ]]; then
+    if [[ ! -x "$BUILD_SCRIPT" ]]; then
+      echo "ERROR: build script not found or not executable: $BUILD_SCRIPT" >&2
+      exit 1
+    fi
+    echo "Preparing build via $BUILD_SCRIPT"
+    VENV_DIR="$VENV_DIR" REPO_DIR="$REPO_DIR" "$BUILD_SCRIPT"
+  fi
+
+  if [[ ! -x "$CLI_MCP_BIN" ]]; then
+    echo "ERROR: CLI not found at $CLI_MCP_BIN (set CLI_MCP_BIN if needed)" >&2
+    exit 1
+  fi
+
   mkdir -p "$(dirname "$PIDFILE")" "$(dirname "$LOGFILE")"
 
   # Free the port if something else is using it
@@ -92,7 +112,7 @@ start_bg() {
     source '$ENV_FILE'
     set +a
     exec npx -y supergateway \
-      --stdio \"uvx cli-mcp-server\" \
+      --stdio \"$CLI_MCP_BIN\" \
       --outputTransport streamableHttp \
       --stateful \
       --port '$PORT' \
@@ -151,4 +171,3 @@ case "${1:-}" in
     exit 2
     ;;
 esac
-

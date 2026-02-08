@@ -34,7 +34,9 @@ comprehensive security features.
 7. [Error Handling](#error-handling)
 8. [Development](#development)
     - [Prerequisites](#prerequisites)
+    - [Testing](#testing)
     - [Building and Publishing](#building-and-publishing)
+    - [Deploying with Supergateway](#deploying-with-supergateway)
     - [Debugging](#debugging)
 9. [License](#license)
 
@@ -193,6 +195,17 @@ The server provides detailed error messages for:
 - Python 3.10+
 - MCP protocol library
 
+### Testing
+
+Run the local build + smoke test flow:
+
+```bash
+./scripts/build_run.sh
+```
+
+This script creates a virtual environment in `.venv/`, installs the package from the local
+repository, and produces build artifacts in `dist/`.
+
 ### Building and Publishing
 
 To prepare the package for distribution:
@@ -213,6 +226,23 @@ To prepare the package for distribution:
    ```bash
    uv publish --token {{YOUR_PYPI_API_TOKEN}}
    ```
+
+### Deploying with Supergateway
+
+For local deployments using [Supergateway](https://github.com/supercorp-ai/supergateway), you can use:
+
+```bash
+./scripts/deploy_supergateway.sh start
+```
+
+The deploy script uses `scripts/build_run.sh` to prepare a local build and then launches
+Supergateway with the locally built `cli-mcp-server` CLI. You can customize paths with
+`REPO_DIR`, `VENV_DIR`, and `CLI_MCP_BIN`. Set `SKIP_BUILD=true` to skip rebuilding.
+
+```bash
+./scripts/deploy_supergateway.sh status
+./scripts/deploy_supergateway.sh stop
+```
 
 ### Debugging
 
