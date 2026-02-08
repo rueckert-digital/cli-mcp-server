@@ -37,7 +37,7 @@ resolve_allowed_dir() {
     return 0
   fi
 
-  for candidate in "/DATA/repos/codex-cli-control-center" "/workspace/cli-mcp-server" "/tmp"; do
+  for candidate in "/DATA/repos/codex-cli-control-center" "/workspace/cli-mcp-server"; do
     if [[ -d "$candidate" ]]; then
       export ALLOWED_DIR="$candidate"
       return 0
