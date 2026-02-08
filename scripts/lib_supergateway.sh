@@ -21,21 +21,29 @@ require_var() {
 
 check_supergateway_url() {
   local url="$1"
+  local timeout="${SUPERGATEWAY_WAIT_SECONDS:-20}"
   python - <<'PY'
 import socket
 import urllib.parse
 import os
+import time
 
 url = os.environ["CHECK_URL"]
+timeout = int(os.environ.get("CHECK_TIMEOUT", "20"))
 parsed = urllib.parse.urlparse(url)
 if not parsed.hostname or not parsed.port:
     raise SystemExit(f"Invalid SUPERGATEWAY_URL: {url}")
 
-try:
-    with socket.create_connection((parsed.hostname, parsed.port), timeout=2):
-        print(f"Supergateway reachable at {parsed.hostname}:{parsed.port}")
-except OSError as exc:
-    raise SystemExit(f"Supergateway not reachable at {parsed.hostname}:{parsed.port}: {exc}")
+deadline = time.time() + timeout
+while time.time() < deadline:
+    try:
+        with socket.create_connection((parsed.hostname, parsed.port), timeout=2):
+            print(f"Supergateway reachable at {parsed.hostname}:{parsed.port}")
+            raise SystemExit(0)
+    except OSError:
+        time.sleep(1)
+
+raise SystemExit(f"Supergateway not reachable at {parsed.hostname}:{parsed.port} after {timeout}s")
 PY
 }
 

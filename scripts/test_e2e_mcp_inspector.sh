@@ -34,22 +34,35 @@ run_suite() {
   local label="$2"
   echo "==> Inspector e2e: ${label}"
 
+  assert_contains() {
+    local output="$1"
+    local needle="$2"
+    local context="$3"
+    if ! echo "$output" | grep -q "$needle"; then
+      echo "❌ Missing expected output for ${context}" >&2
+      echo "Expected: ${needle}" >&2
+      echo "Actual output:" >&2
+      echo "$output" >&2
+      exit 1
+    fi
+  }
+
   local tools_output
   tools_output="$(run_inspector "$url" --method tools/list)"
-  echo "$tools_output" | grep -q "run_command"
-  echo "$tools_output" | grep -q "show_security_rules"
+  assert_contains "$tools_output" "run_command" "tools/list"
+  assert_contains "$tools_output" "show_security_rules" "tools/list"
 
   local security_output
   security_output="$(run_inspector "$url" --method tools/call --tool-name show_security_rules)"
-  echo "$security_output" | grep -q "Security Configuration"
+  assert_contains "$security_output" "Security Configuration" "tools/call show_security_rules"
 
   local echo_output
   echo_output="$(run_inspector "$url" --method tools/call --tool-name run_command --tool-arg "command=echo \\$SHELL")"
-  echo "$echo_output" | grep -q "Command completed with return code: 0"
+  assert_contains "$echo_output" "Command completed with return code: 0" "tools/call run_command echo"
 
   local ls_output
   ls_output="$(run_inspector "$url" --method tools/call --tool-name run_command --tool-arg "command=ls -s")"
-  echo "$ls_output" | grep -q "Command completed with return code: 0"
+  assert_contains "$ls_output" "Command completed with return code: 0" "tools/call run_command ls"
 }
 
 CHECK_URL="$SUPERGATEWAY_URL" check_supergateway_url "$SUPERGATEWAY_URL"
