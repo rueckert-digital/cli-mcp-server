@@ -1,16 +1,39 @@
-import json
 import os
+import socket
 import unittest
-import urllib.error
+import urllib.parse
 import urllib.request
+import urllib.error
+import json
+
+
+def _read_response_body(response: urllib.response.addinfourl) -> str:
+    content_type = response.headers.get("content-type", "")
+    if content_type.startswith("text/event-stream"):
+        lines = []
+        while True:
+            line = response.readline().decode("utf-8")
+            if not line:
+                break
+            lines.append(line)
+            if line.startswith("data: "):
+                break
+        return "".join(lines)
+    return response.read().decode("utf-8")
 
 
 def _post_json(url: str, payload: dict, headers: dict, timeout: int = 10) -> tuple[int, dict, str]:
     data = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        body = response.read().decode("utf-8")
-        return response.status, dict(response.headers), body
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = _read_response_body(response)
+            normalized_headers = {key.lower(): value for key, value in response.headers.items()}
+            return response.status, normalized_headers, body
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8") if exc.fp else ""
+        normalized_headers = {key.lower(): value for key, value in exc.headers.items()}
+        return exc.code, normalized_headers, body
 
 
 def _parse_response_body(body: str) -> dict:
@@ -23,9 +46,35 @@ def _parse_response_body(body: str) -> dict:
     raise AssertionError(f"Unable to parse response body: {body!r}")
 
 
+def _is_port_open(host: str, port: int, timeout: float = 0.5) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 class TestSupergatewayE2E(unittest.TestCase):
+    _base_url: str = ""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        port = os.getenv("PORT", "8084")
+        url = os.getenv("SUPERGATEWAY_URL", f"http://127.0.0.1:{port}/mcp")
+        parsed = urllib.parse.urlparse(url)
+        if not parsed.hostname or not parsed.port:
+            raise RuntimeError(f"Invalid SUPERGATEWAY_URL: {url}")
+        cls._base_url = url
+
+        if not _is_port_open(parsed.hostname, parsed.port):
+            raise RuntimeError(
+                "Supergateway is not reachable. Start it before running e2e tests. "
+                f"Expected listening at {parsed.hostname}:{parsed.port}."
+            )
+
     def test_supergateway_endpoints(self) -> None:
-        url = os.getenv("SUPERGATEWAY_URL", "http://127.0.0.1:8084/mcp")
+        url = self._base_url
+        print("[e2e] Supergateway client checks starting")
         base_headers = {
             "accept": "application/json, text/event-stream",
             "content-type": "application/json",
@@ -46,6 +95,7 @@ class TestSupergatewayE2E(unittest.TestCase):
         self.assertEqual(status, 200, f"Unexpected init status: {status}, body={init_body}")
         init_response = _parse_response_body(init_body)
         self.assertIn("result", init_response, f"Init response missing result: {init_response}")
+        print("[e2e][initialize] ok")
 
         session_id = init_headers.get("mcp-session-id")
         self.assertTrue(session_id, "Missing mcp-session-id header from initialize")
@@ -66,6 +116,7 @@ class TestSupergatewayE2E(unittest.TestCase):
             202,
             f"Unexpected initialized notification status: {notify_status}, body={notify_body}",
         )
+        print("[e2e][notifications/initialized] ok")
 
         tools_list = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
         tools_status, _, tools_body = _post_json(url, tools_list, headers)
@@ -78,6 +129,7 @@ class TestSupergatewayE2E(unittest.TestCase):
         tool_names = {tool["name"] for tool in tools_response["result"]["tools"]}
         self.assertIn("run_command", tool_names)
         self.assertIn("show_security_rules", tool_names)
+        print("[e2e][tools/list] ok")
 
         echo_shell = {
             "jsonrpc": "2.0",
@@ -94,6 +146,7 @@ class TestSupergatewayE2E(unittest.TestCase):
         echo_response = _parse_response_body(echo_body)
         echo_text = "\n".join(item["text"] for item in echo_response["result"]["content"])
         self.assertIn("Command completed with return code: 0", echo_text)
+        print("[e2e][tools/call run_command echo] ok")
 
         list_dir = {
             "jsonrpc": "2.0",
@@ -110,6 +163,7 @@ class TestSupergatewayE2E(unittest.TestCase):
         ls_response = _parse_response_body(ls_body)
         ls_text = "\n".join(item["text"] for item in ls_response["result"]["content"])
         self.assertIn("Command completed with return code: 0", ls_text)
+        print("[e2e][tools/call run_command ls] ok")
 
         security_call = {
             "jsonrpc": "2.0",
@@ -126,6 +180,9 @@ class TestSupergatewayE2E(unittest.TestCase):
         security_response = _parse_response_body(security_body)
         security_text = "\n".join(item["text"] for item in security_response["result"]["content"])
         self.assertIn("Security Configuration", security_text)
+        print("[e2e][tools/call show_security_rules] ok")
+
+        print("[e2e] Supergateway client checks done")
 
 
 if __name__ == "__main__":

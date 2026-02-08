@@ -210,13 +210,15 @@ class CommandExecutor:
             validated_args = []
             for arg in args:
                 is_explicit_path = (arg.startswith(("./", "../", "/")) and not arg.startswith("//")) or arg == "."
-                
                 if arg.startswith("-"):
                     if (
                         not self.security_config.allow_all_flags
                         and arg not in self.security_config.allowed_flags
                     ):
                         raise CommandSecurityError(f"Flag '{arg}' is not allowed")
+                    validated_args.append(arg)
+                    continue
+                if command == "echo":
                     validated_args.append(arg)
                     continue
                 # For any path-like argument, validate it
