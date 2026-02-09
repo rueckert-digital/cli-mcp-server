@@ -48,6 +48,7 @@ class SecurityConfig:
     max_command_length: int
     command_timeout: int
     shell_exec: str
+    shell_exec_args: List[str]
     allow_all_commands: bool = False
     allow_all_flags: bool = False
     allow_shell_operators: bool = False
@@ -59,12 +60,14 @@ class CommandExecutor:
         allowed_dir: str,
         security_config: SecurityConfig,
         shell_exec: Optional[str] = None,
+        shell_exec_args: Optional[List[str]] = None,
     ):
         if not allowed_dir or not os.path.exists(allowed_dir):
             raise ValueError("Valid ALLOWED_DIR is required")
         self.allowed_dir = os.path.abspath(os.path.realpath(allowed_dir))
         self.security_config = security_config
         self.shell_exec = shell_exec
+        self.shell_exec_args = shell_exec_args or []
 
     def _normalize_path(self, path: str) -> str:
         """
@@ -349,11 +352,20 @@ class CommandExecutor:
                         )
 
             if use_shell:
+                if self.shell_exec:
+                    shell_command = [self.shell_exec, *self.shell_exec_args, "-c", command]
+                    return subprocess.run(
+                        shell_command,
+                        shell=False,
+                        text=True,
+                        capture_output=True,
+                        timeout=self.security_config.command_timeout,
+                        cwd=self.allowed_dir,
+                    )
                 # For commands with shell operators, execute with shell=True
                 return subprocess.run(
                     command,  # command is the full command string in this case
                     shell=True,
-                    executable=self.shell_exec,
                     text=True,
                     capture_output=True,
                     timeout=self.security_config.command_timeout,
@@ -405,6 +417,7 @@ def load_security_config() -> SecurityConfig:
         MAX_COMMAND_LENGTH: Maximum command string length (default: 1024)
         COMMAND_TIMEOUT: Command timeout in seconds (default: 30)
         SHELL_EXEC: Absolute path to the shell executable (default: "default")
+        SHELL_EXEC_ARGS: Extra arguments to pass to the shell executable (default: empty)
         ALLOW_SHELL_OPERATORS: Whether to allow shell operators like &&, ||, |, >, etc. (default: false)
                               Set to "true" or "1" to enable, any other value to disable.
     """
@@ -412,6 +425,7 @@ def load_security_config() -> SecurityConfig:
     allowed_flags = os.getenv("ALLOWED_FLAGS", "-l,-a,--help")
     allow_shell_operators_env = os.getenv("ALLOW_SHELL_OPERATORS", "false")
     shell_exec = os.getenv("SHELL_EXEC") or "default"
+    shell_exec_args = shlex.split(os.getenv("SHELL_EXEC_ARGS", ""))
 
     allow_all_commands = allowed_commands.lower() == "all"
     allow_all_flags = allowed_flags.lower() == "all"
@@ -425,6 +439,7 @@ def load_security_config() -> SecurityConfig:
         max_command_length=int(os.getenv("MAX_COMMAND_LENGTH", "1024")),
         command_timeout=int(os.getenv("COMMAND_TIMEOUT", "30")),
         shell_exec=shell_exec,
+        shell_exec_args=shell_exec_args,
         allow_all_commands=allow_all_commands,
         allow_all_flags=allow_all_flags,
         allow_shell_operators=allow_shell_operators,
@@ -445,10 +460,20 @@ def load_shell_exec() -> Optional[str]:
     return shell_exec
 
 
+def load_shell_exec_args() -> List[str]:
+    shell_exec_args = os.getenv("SHELL_EXEC_ARGS", "")
+    if not shell_exec_args:
+        return []
+    if not os.getenv("SHELL_EXEC"):
+        raise ValueError("SHELL_EXEC_ARGS requires SHELL_EXEC to be set")
+    return shlex.split(shell_exec_args)
+
+
 executor = CommandExecutor(
     allowed_dir=os.getenv("ALLOWED_DIR", ""),
     security_config=load_security_config(),
     shell_exec=load_shell_exec(),
+    shell_exec_args=load_shell_exec_args(),
 )
 
 
@@ -557,6 +582,12 @@ async def handle_call_tool(
             else ", ".join(sorted(executor.security_config.allowed_flags))
         )
 
+        shell_exec_display = executor.security_config.shell_exec
+        if executor.security_config.shell_exec_args:
+            shell_exec_display = (
+                f"{shell_exec_display} {' '.join(executor.security_config.shell_exec_args)}"
+            )
+
         security_info = (
             "Security Configuration:\n"
             f"==================\n"
@@ -569,7 +600,7 @@ async def handle_call_tool(
             f"{flags_desc}\n"
             f"\nSecurity Limits:\n"
             f"---------------\n"
-            f"Executable: {executor.security_config.shell_exec}\n"
+            f"Executable: {shell_exec_display}\n"
             f"Max Command Length: {executor.security_config.max_command_length} characters\n"
             f"Command Timeout: {executor.security_config.command_timeout} seconds\n"
         )

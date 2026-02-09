@@ -38,7 +38,10 @@ resolve_allowed_dir() {
     return 0
   fi
 
-  for candidate in "/DATA/repos/codex-cli-control-center" "/workspace/cli-mcp-server"; do
+  for candidate in "${GITHUB_WORKSPACE:-}" "$REPO_DIR" "/DATA/repos/codex-cli-control-center" "/workspace/cli-mcp-server"; do
+    if [[ -z "${candidate:-}" ]]; then
+      continue
+    fi
     if [[ -d "$candidate" ]]; then
       export ALLOWED_DIR="$candidate"
       return 0
@@ -159,9 +162,15 @@ start_bg() {
     exit 1
   fi
 
+  local allowed_dir_override="${ALLOWED_DIR:-}"
+
   set -a
   source "$ENV_FILE"
   set +a
+
+  if [[ -n "${allowed_dir_override:-}" ]]; then
+    export ALLOWED_DIR="$allowed_dir_override"
+  fi
 
   if ! resolve_allowed_dir; then
     echo "ERROR: ALLOWED_DIR not set to an existing directory." >&2
