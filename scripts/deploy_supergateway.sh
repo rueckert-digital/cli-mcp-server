@@ -13,6 +13,7 @@ ENV_FILE="${ENV_FILE:-.env}"
 PIDFILE="${PIDFILE:-/var/run/supergateway-cli-mcp.pid}"
 LOGFILE="${LOGFILE:-/var/log/supergateway-cli-mcp.log}"
 CLI_MCP_BIN="${CLI_MCP_BIN:-${VENV_DIR}/bin/cli-mcp-server}"
+NPX_BIN="${NPX_BIN:-}"
 
 install_requirements() {
   if command -v lsof >/dev/null 2>&1 || command -v ss >/dev/null 2>&1; then
@@ -37,7 +38,10 @@ resolve_allowed_dir() {
     return 0
   fi
 
-  for candidate in "/DATA/repos/codex-cli-control-center" "/workspace/cli-mcp-server"; do
+  for candidate in "${GITHUB_WORKSPACE:-}" "$REPO_DIR" "/DATA/repos/codex-cli-control-center" "/workspace/cli-mcp-server"; do
+    if [[ -z "${candidate:-}" ]]; then
+      continue
+    fi
     if [[ -d "$candidate" ]]; then
       export ALLOWED_DIR="$candidate"
       return 0
@@ -110,6 +114,26 @@ start_bg() {
     exit 0
   fi
 
+  if [[ -f "$LOGFILE" ]]; then
+    : >"$LOGFILE"
+  fi
+
+  if [[ -z "${NPX_BIN:-}" ]]; then
+    NPX_BIN="$(command -v npx || true)"
+  fi
+  if [[ -z "${NPX_BIN:-}" ]]; then
+    echo "ERROR: npx not found on PATH." >&2
+    exit 1
+  fi
+
+  local node_bin
+  node_bin="$(command -v node || true)"
+  if [[ -z "${node_bin:-}" ]]; then
+    echo "ERROR: node not found on PATH." >&2
+    exit 1
+  fi
+  export PATH="$(dirname "$node_bin"):${PATH}"
+
   if [[ "${SKIP_BUILD:-false}" != "true" ]]; then
     if [[ ! -x "$BUILD_SCRIPT" ]]; then
       echo "ERROR: build script not found or not executable: $BUILD_SCRIPT" >&2
@@ -138,9 +162,15 @@ start_bg() {
     exit 1
   fi
 
+  local allowed_dir_override="${ALLOWED_DIR:-}"
+
   set -a
   source "$ENV_FILE"
   set +a
+
+  if [[ -n "${allowed_dir_override:-}" ]]; then
+    export ALLOWED_DIR="$allowed_dir_override"
+  fi
 
   if ! resolve_allowed_dir; then
     echo "ERROR: ALLOWED_DIR not set to an existing directory." >&2
@@ -148,19 +178,21 @@ start_bg() {
   fi
 
   # Detach cleanly from terminal, survive logout, write pidfile
-  nohup bash -lc "
-    set -euo pipefail
-    set -a
-    source '$ENV_FILE'
-    ALLOWED_DIR='${ALLOWED_DIR}'
-    set +a
-    exec npx -y supergateway \
-      --stdio \"$CLI_MCP_BIN\" \
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "${NPX_BIN}" -y supergateway \
+      --stdio "$CLI_MCP_BIN" \
       --outputTransport streamableHttp \
       --stateful \
-      --port '$PORT' \
-      --streamableHttpPath '$PATH_MCP'
-  " >>"$LOGFILE" 2>&1 &
+      --port "$PORT" \
+      --streamableHttpPath "$PATH_MCP" >>"$LOGFILE" 2>&1 &
+  else
+    nohup "${NPX_BIN}" -y supergateway \
+      --stdio "$CLI_MCP_BIN" \
+      --outputTransport streamableHttp \
+      --stateful \
+      --port "$PORT" \
+      --streamableHttpPath "$PATH_MCP" >>"$LOGFILE" 2>&1 &
+  fi
 
   echo $! >"$PIDFILE"
   disown || true

@@ -29,6 +29,7 @@ class TestCLIMCPServer(unittest.TestCase):
         # Ensure shell operators are disabled by default
         os.environ.pop("ALLOW_SHELL_OPERATORS", None)
         os.environ.pop("SHELL_EXEC", None)
+        os.environ.pop("SHELL_EXEC_ARGS", None)
         # Reload server module to pick up env changes
         try:
             import cli_mcp_server.server as server_module
@@ -238,6 +239,7 @@ class TestCLIMCPServer(unittest.TestCase):
                 os.environ["ALLOWED_COMMANDS"] = "all"
                 os.environ["ALLOWED_FLAGS"] = "all"
                 os.environ["SHELL_EXEC"] = shell_path
+                os.environ.pop("SHELL_EXEC_ARGS", None)
                 import cli_mcp_server.server as server_module
 
                 server = importlib.reload(server_module)
@@ -256,6 +258,65 @@ class TestCLIMCPServer(unittest.TestCase):
                     any(file_name in text for text in texts),
                     f"Expected ls output to include {file_name}, got: {texts}",
                 )
+
+    def test_shell_exec_non_shell_binary(self):
+        if not os.path.exists("/bin/curl"):
+            self.skipTest("/bin/curl not available")
+
+        os.environ["ALLOW_SHELL_OPERATORS"] = "true"
+        os.environ["ALLOWED_COMMANDS"] = "all"
+        os.environ["ALLOWED_FLAGS"] = "all"
+        os.environ["SHELL_EXEC"] = "/bin/curl"
+        os.environ.pop("SHELL_EXEC_ARGS", None)
+
+        import cli_mcp_server.server as server_module
+
+        self.server = importlib.reload(server_module)
+        result = asyncio.run(
+            self.server.handle_call_tool("run_command", {"command": "echo OK | cat"})
+        )
+        texts = [tc.text for tc in result]
+        print_results_table("test_shell_exec_non_shell_binary", result)
+        return_code = next(
+            (
+                int(text.split(":")[-1].strip())
+                for text in texts
+                if "return code" in text
+            ),
+            None,
+        )
+        self.assertIsNotNone(return_code, f"Missing return code output: {texts}")
+        self.assertNotEqual(
+            return_code,
+            0,
+            f"Expected non-zero return code when using /bin/curl as shell, got: {texts}",
+        )
+
+    def test_shell_exec_login_shell_args(self):
+        if not os.path.exists("/bin/bash"):
+            self.skipTest("/bin/bash not available")
+
+        os.environ["ALLOW_SHELL_OPERATORS"] = "true"
+        os.environ["ALLOWED_COMMANDS"] = "all"
+        os.environ["ALLOWED_FLAGS"] = "all"
+        os.environ["SHELL_EXEC"] = "/bin/bash"
+        os.environ["SHELL_EXEC_ARGS"] = "-l"
+
+        import cli_mcp_server.server as server_module
+
+        self.server = importlib.reload(server_module)
+        result = asyncio.run(
+            self.server.handle_call_tool(
+                "run_command",
+                {"command": "shopt -q login_shell && echo LOGIN || echo NO"},
+            )
+        )
+        texts = [tc.text for tc in result]
+        print_results_table("test_shell_exec_login_shell_args", result)
+        self.assertTrue(
+            any("LOGIN" in text for text in texts),
+            f"Expected login shell output, got: {texts}",
+        )
 
 
 if __name__ == "__main__":
