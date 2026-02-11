@@ -2,11 +2,18 @@
 set -Eeuo pipefail
 
 load_env() {
-  if [[ -f ".env" ]]; then
-    echo "Sourcing .env ..."
+  local env_file="${ENV_FILE:-.env}"
+  local resolved_env_file="$env_file"
+
+  if [[ ! -f "$resolved_env_file" ]] && [[ -n "${SCRIPT_DIR:-}" ]]; then
+    resolved_env_file="${SCRIPT_DIR}/../${env_file}"
+  fi
+
+  if [[ -f "$resolved_env_file" ]]; then
+    echo "Sourcing ${resolved_env_file} ..."
     set -a
     # shellcheck disable=SC1091
-    source .env
+    source "$resolved_env_file"
     set +a
   fi
 }
