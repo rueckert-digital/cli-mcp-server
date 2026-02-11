@@ -11,6 +11,9 @@ source "${SCRIPT_DIR}/lib_supergateway.sh"
 
 load_env
 
+ENV_SHELL_EXEC="${SHELL_EXEC:-default}"
+ENV_SHELL_EXEC_BASENAME="$(basename "$ENV_SHELL_EXEC")"
+
 VENV_DIR="${VENV_DIR:-.venv}"
 CLI_MCP_BIN="${CLI_MCP_BIN:-${VENV_DIR}/bin/cli-mcp-server}"
 
@@ -64,8 +67,9 @@ run_suite() {
   assert_contains "$security_output" "Security Configuration" "tools/call show_security_rules"
 
   local echo_output
-  echo_output="$(run_inspector "$url" --method tools/call --tool-name run_command --tool-arg "command=echo exe=\\$(readlink -f /proc/$$/exe), flags=\\$-")"
+  echo_output="$(run_inspector "$url" --method tools/call --tool-name run_command --tool-arg "command=echo env_shell_exec=$ENV_SHELL_EXEC env_shell_args=${SHELL_EXEC_ARGS:-} && echo shell_exec=\\$(readlink -f /proc/$$/exe) shell_args=\\$-")"
   assert_contains "$echo_output" "Command completed with return code: 0" "tools/call run_command echo"
+  assert_contains "$echo_output" "$ENV_SHELL_EXEC_BASENAME" "tools/call run_command echo"
 
   local ls_output
   ls_output="$(run_inspector "$url" --method tools/call --tool-name run_command --tool-arg "command=ls -s")"

@@ -318,6 +318,36 @@ class TestCLIMCPServer(unittest.TestCase):
             f"Expected login shell output, got: {texts}",
         )
 
+    def test_shell_exec_args_with_explicit_c(self):
+        if not os.path.exists("/bin/bash"):
+            self.skipTest("/bin/bash not available")
+
+        os.environ["ALLOW_SHELL_OPERATORS"] = "true"
+        os.environ["ALLOWED_COMMANDS"] = "all"
+        os.environ["ALLOWED_FLAGS"] = "all"
+        os.environ["SHELL_EXEC"] = "/bin/bash"
+        os.environ["SHELL_EXEC_ARGS"] = "-Eeuo pipefail -c"
+
+        import cli_mcp_server.server as server_module
+
+        self.server = importlib.reload(server_module)
+        result = asyncio.run(
+            self.server.handle_call_tool(
+                "run_command",
+                {"command": "echo EXPLICIT_C_OK && echo SECOND"},
+            )
+        )
+        texts = [tc.text for tc in result]
+        print_results_table("test_shell_exec_args_with_explicit_c", result)
+        self.assertTrue(
+            any("EXPLICIT_C_OK" in text for text in texts),
+            f"Expected command output, got: {texts}",
+        )
+        self.assertTrue(
+            any("SECOND" in text for text in texts),
+            f"Expected second command output, got: {texts}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

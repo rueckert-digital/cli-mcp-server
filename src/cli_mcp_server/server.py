@@ -353,7 +353,11 @@ class CommandExecutor:
 
             if use_shell:
                 if self.shell_exec:
-                    shell_command = [self.shell_exec, *self.shell_exec_args, "-c", command]
+                    shell_command = [self.shell_exec, *self.shell_exec_args]
+                    if "-c" not in self.shell_exec_args:
+                        shell_command.extend(["-c", command])
+                    else:
+                        shell_command.append(command)
                     return subprocess.run(
                         shell_command,
                         shell=False,
