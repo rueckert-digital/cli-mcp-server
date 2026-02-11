@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="${REPO_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
-BUILD_SCRIPT="${BUILD_SCRIPT:-${SCRIPT_DIR}/build_run.sh}"
+BUILD_SCRIPT="${BUILD_SCRIPT:-${SCRIPT_DIR}/build.sh}"
 VENV_DIR="${VENV_DIR:-${REPO_DIR}/.venv}"
 
 PORT="${PORT:-8084}"
@@ -14,6 +14,9 @@ PIDFILE="${PIDFILE:-/var/run/supergateway-cli-mcp.pid}"
 LOGFILE="${LOGFILE:-/var/log/supergateway-cli-mcp.log}"
 CLI_MCP_BIN="${CLI_MCP_BIN:-${VENV_DIR}/bin/cli-mcp-server}"
 NPX_BIN="${NPX_BIN:-}"
+
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib_supergateway.sh"
 
 install_requirements() {
   if command -v lsof >/dev/null 2>&1 || command -v ss >/dev/null 2>&1; then
@@ -164,9 +167,7 @@ start_bg() {
 
   local allowed_dir_override="${ALLOWED_DIR:-}"
 
-  set -a
-  source "$ENV_FILE"
-  set +a
+  load_env
 
   if [[ -n "${allowed_dir_override:-}" ]]; then
     export ALLOWED_DIR="$allowed_dir_override"
@@ -180,14 +181,14 @@ start_bg() {
   # Detach cleanly from terminal, survive logout, write pidfile
   if command -v setsid >/dev/null 2>&1; then
     setsid "${NPX_BIN}" -y supergateway \
-      --stdio "$CLI_MCP_BIN" \
+      --stdio "echo 1; $CLI_MCP_BIN" \
       --outputTransport streamableHttp \
       --stateful \
       --port "$PORT" \
       --streamableHttpPath "$PATH_MCP" >>"$LOGFILE" 2>&1 &
   else
     nohup "${NPX_BIN}" -y supergateway \
-      --stdio "$CLI_MCP_BIN" \
+      --stdio "echo 2; $CLI_MCP_BIN" \
       --outputTransport streamableHttp \
       --stateful \
       --port "$PORT" \

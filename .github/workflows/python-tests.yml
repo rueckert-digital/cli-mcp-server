@@ -10,38 +10,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - run: |
+          echo github.workspace: ${{ github.workspace }}
+          echo GITHUB_WORKSPACE: $GITHUB_WORKSPACE      
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Build CLI
-        run: ./scripts/build_run.sh
-      - name: Start Supergateway
-        run: |
-          export ALLOWED_DIR="${GITHUB_WORKSPACE}"
-          export ALLOWED_COMMANDS="all"
-          export ALLOWED_FLAGS="all"
-          export ALLOW_SHELL_OPERATORS="true"
-          export SKIP_BUILD="true"
-          export VENV_DIR="${GITHUB_WORKSPACE}/.venv"
-          ./scripts/deploy_supergateway.sh start
-      - name: Wait for Supergateway
-        run: |
-          python - <<'PY'
-          import socket
-          import time
-
-          host, port = "127.0.0.1", 8084
-          deadline = time.time() + 30
-          while time.time() < deadline:
-              try:
-                  with socket.create_connection((host, port), timeout=1):
-                      break
-              except OSError:
-                  time.sleep(1)
-          else:
-              raise SystemExit("Supergateway did not start on 127.0.0.1:8084")
-          PY
+          python-version: '3.13'
+      - name: Run Unit tests
       - run: ./.venv/bin/python -m unittest discover -v

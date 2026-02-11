@@ -20,4 +20,5 @@ python -m pip install --quiet .
 python -m pip install --quiet build
 python -m build --quiet
 
+echo
 echo "Build complete. CLI available at: ${VENV_DIR}/bin/cli-mcp-server"

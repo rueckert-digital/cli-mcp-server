@@ -33,11 +33,17 @@ run_suite() {
   local url="$1"
   local label="$2"
   echo "==> Inspector e2e: ${label}"
+  echo 
 
   assert_contains() {
     local output="$1"
     local needle="$2"
     local context="$3"
+    echo "[test] ${context} ..."
+    # debug output for "echo $SHELL"
+    if [[ "${context}" == "tools/call run_command echo" ]]; then
+      echo "$output"
+    fi
     if ! echo "$output" | grep -q "$needle"; then
       echo "❌ Missing expected output for ${context}" >&2
       echo "Expected: ${needle}" >&2
@@ -45,6 +51,7 @@ run_suite() {
       echo "$output" >&2
       exit 1
     fi
+    echo
   }
 
   local tools_output
@@ -57,7 +64,7 @@ run_suite() {
   assert_contains "$security_output" "Security Configuration" "tools/call show_security_rules"
 
   local echo_output
-  echo_output="$(run_inspector "$url" --method tools/call --tool-name run_command --tool-arg "command=echo \\$SHELL")"
+  echo_output="$(run_inspector "$url" --method tools/call --tool-name run_command --tool-arg "command=echo exe=\\$(readlink -f /proc/$$/exe), flags=\\$-")"
   assert_contains "$echo_output" "Command completed with return code: 0" "tools/call run_command echo"
 
   local ls_output
